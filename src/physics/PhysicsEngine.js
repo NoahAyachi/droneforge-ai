@@ -18,7 +18,31 @@ class PhysicsEngine {
     this.tmpTransformation = null;
     this.clockDelta = 0;
     this.lastTime = performance.now();
-    this.droneMass = 0.25; // 250g
+
+    // === Setting Variables === //
+    // These variables can later be integrated with the UI for dynamic adjustments
+    this.settings = {
+      droneMass: 0.25, // kg (250g)
+      dragCoefficient: 0.47, // Approximate for a cube
+      liftCoefficient: 0.3, // Example value, should be based on drone's design
+      frontalArea: 0.25, // m^2 (for a cube with side 1m)
+      airDensity: 1.225, // kg/m^3 at sea level
+      maxThrust: 1, // N per motor (adjusted for hover)
+      torqueStrength: 0.5, // Adjust as needed for responsiveness
+      maxVelocity: 50, // m/s
+      maxAngularVelocity: 10, // rad/s
+      useIndividualMotors: false, // Flag to switch control modes
+      motorPositions: [ // Positions of the motors relative to the drone's center
+        new THREE.Vector3(1, 0, 1),   // Motor 1: Front-Right
+        new THREE.Vector3(-1, 0, 1),  // Motor 2: Front-Left
+        new THREE.Vector3(-1, 0, -1), // Motor 3: Rear-Left
+        new THREE.Vector3(1, 0, -1)   // Motor 4: Rear-Right
+      ],
+      motorThrusts: [0.6125, 0.6125, 0.6125, 0.6125] // Initial thrust values for each motor (0 to 1)
+    };
+    // === End of Setting Variables === //
+    
+    this.droneMass = this.settings.droneMass;
   }
 
   /**
@@ -212,7 +236,7 @@ class PhysicsEngine {
         // Limit maximum linear velocity
         const velocity = objAmmo.getLinearVelocity();
         const currentSpeed = velocity.length();
-        const maxVelocity = 50; // m/s
+        const maxVelocity = this.settings.maxVelocity; // m/s
 
         if (currentSpeed > maxVelocity) {
           const scale = maxVelocity / currentSpeed;
@@ -225,7 +249,7 @@ class PhysicsEngine {
         // Limit maximum angular velocity
         const angularVelocity = objAmmo.getAngularVelocity();
         const currentAngSpeed = angularVelocity.length();
-        const maxAngularVelocity = 10; // rad/s
+        const maxAngularVelocity = this.settings.maxAngularVelocity; // rad/s
 
         if (currentAngSpeed > maxAngularVelocity) {
           const scale = maxAngularVelocity / currentAngSpeed;
@@ -247,11 +271,11 @@ class PhysicsEngine {
     const velocity = this.droneRigidBody.getLinearVelocity();
     const speed = velocity.length();
     
-    const airDensity = 1.225; // kg/m^3 at sea level
+    const airDensity = this.settings.airDensity; // kg/m^3
 
     // Drag Calculations
-    const dragCoefficient = 0.47; // Approximate for a cube
-    const frontalArea = 0.25; // m^2 (for a cube with side 1m)
+    const dragCoefficient = this.settings.dragCoefficient;
+    const frontalArea = this.settings.frontalArea;
     const dragMagnitude = 0.5 * dragCoefficient * frontalArea * airDensity * speed * speed;
 
     if (speed > 0) {
@@ -259,11 +283,12 @@ class PhysicsEngine {
       dragForce.normalize();
       dragForce.op_mul(dragMagnitude);
       this.droneRigidBody.applyCentralForce(dragForce);
+      
+      
     }
 
     // Lift Calculations
-    // Assuming lift is perpendicular to the velocity vector and drone's orientation
-    const liftCoefficient = .1; // Example value, should be based on drone's design
+    const liftCoefficient = this.settings.liftCoefficient;
     const liftMagnitude = 0.5 * liftCoefficient * airDensity * speed * speed;
 
     // Calculate lift direction based on drone's orientation
@@ -275,13 +300,8 @@ class PhysicsEngine {
 
     const liftForce = new this.Ammo.btVector3(upVector.x * liftMagnitude, upVector.y * liftMagnitude, upVector.z * liftMagnitude);
     this.droneRigidBody.applyCentralForce(liftForce);
-
-    // Additional Aerodynamic Moments (Optional)
-    // Example: Induced Drag or Torque based on rotation
-    // const torqueCoefficient = 0.1;
-    // const torqueMagnitude = torqueCoefficient * speed;
-    // const torque = new this.Ammo.btVector3(torqueMagnitude, torqueMagnitude, torqueMagnitude);
-    // this.droneRigidBody.applyTorque(torque);
+    
+    
   }
 
   /**
@@ -292,10 +312,9 @@ class PhysicsEngine {
   applyControlsToDrone() {
     const controls = this.controls.getControlInputs();
     
-    const maxThrust = 9.81 * 2; // N (twice the hover thrust for maneuverability)
-    const thrustForce = controls.throttle * maxThrust;
-    const torqueStrength = 0.5; // Adjust as needed for responsiveness
-    
+    const maxThrust = this.settings.maxThrust; // N
+    const torqueStrength = this.settings.torqueStrength; // Adjust as needed for responsiveness
+
     // Get drone's current orientation
     const droneTransform = this.droneRigidBody.getWorldTransform();
     const rotation = droneTransform.getRotation();
@@ -304,31 +323,76 @@ class PhysicsEngine {
     const ammoQuat = rotation;
     const threeQuat = new THREE.Quaternion(ammoQuat.x(), ammoQuat.y(), ammoQuat.z(), ammoQuat.w());
     
-    // Calculate local thrust vector and rotate it to world space
-    const thrustLocal = new THREE.Vector3(0, thrustForce, 0);
-    const thrustWorldVector = thrustLocal.applyQuaternion(threeQuat);
-    
-    // Convert back to Ammo.js vector
-    const thrustWorld = new this.Ammo.btVector3(thrustWorldVector.x, thrustWorldVector.y, thrustWorldVector.z);
+    if (this.settings.useIndividualMotors) {
+      // === Individual Motor Control Mode === ==
+      
+      // Extract individual motor thrusts from controls
+      const motorThrusts = controls.motorThrusts;
 
-    // Apply thrust
-    this.droneRigidBody.applyCentralForce(thrustWorld);
-    
-    // Define local torques based on control inputs
-    let torqueLocal = new THREE.Vector3(
-      torqueStrength * controls.roll,          // Roll
-      torqueStrength * -controls.yaw,         // Yaw (inverted)
-      torqueStrength * controls.pitch         // Pitch
-    );
+      // Apply thrusts to individual motors
+      for (let i = 1; i <= 4; i++) {
+        const motorKey = `motor${i}`;
+        const motorThrust = motorThrusts[motorKey];
 
-    // Rotate the local torque vector to world space
-    torqueLocal.applyQuaternion(threeQuat);
+        // Skip if motor thrust is not defined
+        if (motorThrust === undefined) continue;
 
-    // Convert the rotated torque vector back to Ammo.js btVector3
-    const torqueWorld = new this.Ammo.btVector3(torqueLocal.x, torqueLocal.y, torqueLocal.z);
+        // Calculate thrust force in world space
+        const thrustLocal = new THREE.Vector3(0, motorThrust * maxThrust, 0);
+        const thrustWorldVector = thrustLocal.clone().applyQuaternion(threeQuat);
+        
+        // Convert to Ammo.js vector
+        const thrustWorld = new this.Ammo.btVector3(thrustWorldVector.x, thrustWorldVector.y, thrustWorldVector.z);
+        
+        // Get motor position in world space
+        const motorPositionLocal = this.settings.motorPositions[i - 1]; // Array is 0-indexed
+        const originAmmo = droneTransform.getOrigin();
+        const origin = new THREE.Vector3(originAmmo.x(), originAmmo.y(), originAmmo.z());
+        const motorPositionWorld = motorPositionLocal.clone().applyQuaternion(threeQuat).add(origin);
+        const motorPosAmmo = new this.Ammo.btVector3(motorPositionWorld.x, motorPositionWorld.y, motorPositionWorld.z);
+        
+        // Apply force at motor position
+        this.droneRigidBody.applyForce(thrustWorld, motorPosAmmo);
+        
+        // **Do Not** destroy Ammo.js vectors here unless necessary
+        // this.Ammo.destroy(thrustWorld);
+        // this.Ammo.destroy(motorPosAmmo);
+      }
+    } else {
+      // === Standard Control Mode === ==
+      const thrustForce = controls.throttle * maxThrust;
+      
+      // Calculate local thrust vector and rotate it to world space
+      const thrustLocal = new THREE.Vector3(0, thrustForce, 0);
+      const thrustWorldVector = thrustLocal.clone().applyQuaternion(threeQuat);
+      
+      // Convert back to Ammo.js vector
+      const thrustWorld = new this.Ammo.btVector3(thrustWorldVector.x, thrustWorldVector.y, thrustWorldVector.z);
 
-    // Apply the transformed torque to the drone
-    this.droneRigidBody.applyTorque(torqueWorld);
+      // Apply central thrust
+      this.droneRigidBody.applyCentralForce(thrustWorld);
+      
+      // Define local torques based on control inputs
+      const torqueLocal = new THREE.Vector3(
+        torqueStrength * controls.roll,          // Roll
+        torqueStrength * -controls.yaw,         // Yaw (inverted)
+        torqueStrength * controls.pitch         // Pitch
+      );
+
+      // Rotate the local torque vector to world space
+      const torqueWorldVector = torqueLocal.clone().applyQuaternion(threeQuat);
+      
+      // Convert the rotated torque vector back to Ammo.js btVector3
+      const torqueWorld = new this.Ammo.btVector3(torqueWorldVector.x, torqueWorldVector.y, torqueWorldVector.z);
+
+      // Apply the transformed torque to the drone
+      this.droneRigidBody.applyTorque(torqueWorld);
+      
+      
+      // **Do Not** destroy Ammo.js vectors here unless necessary
+      // this.Ammo.destroy(thrustWorld);
+      // this.Ammo.destroy(torqueWorld);
+    }
   }
 }
 

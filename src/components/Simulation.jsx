@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useContext } from 'react';
 import * as THREE from 'three';
 import DroneScene from '../scenes/DroneScene';
-import DroneControls from '../controls/droneControls';
-import PhysicsEngine from '../physics/physicsEngine';
+//import ControlScript from '../controls/ControlScript';
+import DroneControls from '../controls/DroneControls';
+import PhysicsEngine from '../physics/PhysicsEngine';
 import {
   createPositionDisplay,
   updatePositionDisplay,

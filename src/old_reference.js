@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import DroneScene from './scenes/DroneScene';
 import DroneControls from './controls/DroneControls';
+import ControlScript from './controls/ControlScript';
 import PhysicsEngine from './physics/PhysicsEngine';
 import { createPositionDisplay, updatePositionDisplay, createControlBar, updateControlBar, createPerformanceStats, createCompass, updateCompass } from './utils/helperFunctions';
 import { loadModel } from './inference/objectDetection';
